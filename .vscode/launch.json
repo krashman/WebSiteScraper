@@ -10,9 +10,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceRoot}/WebSiteScraper/bin/Debug/netcoreapp1.1/WebSiteScraper.dll",
+            "program": "${workspaceRoot}/WebSiteScraper.Core/bin/Debug/netcoreapp1.1/WebSiteScraper.Core.dll",
             "args": [ "http://www.shadowsgovernment.com/shadows-library/", "F:\\Data\\sites\\Shadow's Library", "false" ],
-            "cwd": "${workspaceRoot}/WebSiteScraper",
+            "cwd": "${workspaceRoot}/WebSiteScraper.Core",
             // For more information about the 'console' field, see https://github.com/OmniSharp/omnisharp-vscode/blob/master/debugger-launchjson.md#console-terminal-window
             "console": "externalTerminal",
             "stopAtEntry": false,
