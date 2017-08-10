@@ -20,65 +20,86 @@
 
         private static string currentIndent = null;
 
-        static void Main(string[] args)
+        private static int currentLeft = 0;
+
+        static int Main(string[] args)
         {
+            if (System.Console.BufferWidth == System.Console.WindowWidth)
+            {
+                System.Console.SetBufferSize(System.Console.BufferWidth * 2, System.Console.BufferHeight);
+            }
+
             // download everything local to the site
-            var site = args[0];
-            var local = args[1];
-            update = args.Length > 2 ? bool.Parse(args[2]) : false;
-
-            Task task;
-
-            using (var client = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false }))
-            {
-                var cancellationTokenSource = new System.Threading.CancellationTokenSource();
-                var baseUri = new Uri(site);
-                var basePath = GetFileName(local, baseUri);
-
-                if (!update && System.IO.File.Exists(basePath))
+            var commandLineApplication = new Microsoft.Extensions.CommandLineUtils.CommandLineApplication();
+            var siteArgument =  commandLineApplication.Argument("site", "The site to scrape");
+            var folderArgument =  commandLineApplication.Argument("folder", "The folder to scrape to");
+            var updateOption =  commandLineApplication.Option("-u|--update", "Whether to update or ignore existing files", Microsoft.Extensions.CommandLineUtils.CommandOptionType.NoValue);
+            
+            commandLineApplication.HelpOption("-h|--help");
+            commandLineApplication.OnExecute(() =>
                 {
-                    // just use the current
-                    var links = GetLinks(System.IO.File.ReadAllText(basePath), baseUri);
-                    task = ProcessUris(client, local, links, cancellationTokenSource.Token);
-                }
-                else
-                {
-                    task = Process(client, local, baseUri, cancellationTokenSource.Token);
-                }
+                    var site = siteArgument.Value;
+                    var local = folderArgument.Value;
+                    update = updateOption.HasValue();
 
-                while (!(task.IsFaulted || task.IsCompleted || task.IsCanceled))
-                {
-                    System.Threading.Thread.Sleep(100);
+                     Task task;
 
-                    if (Console.KeyAvailable)
+                    using (var client = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false, AutomaticDecompression = System.Net.DecompressionMethods.None }))
                     {
-                        var key = Console.ReadKey();
-                        switch (key.Key)
+                        var cancellationTokenSource = new System.Threading.CancellationTokenSource();
+                        var baseUri = new Uri(site);
+                        var basePath = GetFileName(local, baseUri);
+
+                        if (!update && System.IO.File.Exists(basePath))
                         {
-                            case ConsoleKey.Escape:
-                                cancellationTokenSource.Cancel();
-                                break;
-                            case ConsoleKey.UpArrow:
-                                Delay++;
-                                break;
-                            case ConsoleKey.DownArrow:
-                                if (Delay > 0)
+                            // just use the current
+                            var links = GetLinks(System.IO.File.ReadAllText(basePath), baseUri);
+                            task = ProcessUris(client, local, update ? links : links.OrderBy(_ => System.IO.File.Exists(GetFileName(local, _)), new ExistsComparer()), cancellationTokenSource.Token);
+                        }
+                        else
+                        {
+                            task = Process(client, local, baseUri, cancellationTokenSource.Token);
+                        }
+
+                        while (!(task.IsFaulted || task.IsCompleted || task.IsCanceled))
+                        {
+                            System.Threading.Thread.Sleep(100);
+
+                            if (Console.KeyAvailable)
+                            {
+                                var key = Console.ReadKey();
+                                switch (key.Key)
                                 {
-                                    Delay--;
-                                }
+                                    case ConsoleKey.Escape:
+                                        cancellationTokenSource.Cancel();
+                                        break;
+                                    case ConsoleKey.UpArrow:
+                                        Delay++;
+                                        break;
+                                    case ConsoleKey.DownArrow:
+                                        if (Delay > 0)
+                                        {
+                                            Delay--;
+                                        }
 
-                                break;
-                        }                        
+                                        break;
+                                }                        
+                            }
+                        }
+
+                        if (task != null && task.IsFaulted)
+                        {
+                            Console.ForegroundColor = ConsoleColor.DarkRed;
+                            Console.WriteLine("{0}ERROR! - {1}", currentIndent, task.Exception.ToString());
+                            Console.ForegroundColor = DefaultConsoleColor;
+                            return task.Exception.HResult;
+                        }
                     }
-                }
-            }
 
-            if (task != null && task.IsFaulted)
-            {
-                Console.ForegroundColor = ConsoleColor.DarkRed;
-                Console.WriteLine("{0}ERROR! - {1}", currentIndent, task.Exception.ToString());
-                Console.ForegroundColor = DefaultConsoleColor;
-            }
+                    return 0;
+                });
+            
+            return commandLineApplication.Execute(args);
         }
 
         private static async Task<bool> Process(System.Net.Http.HttpClient client, string path, Uri uri, System.Threading.CancellationToken cancellationToken)
@@ -88,7 +109,7 @@
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            Console.Write("{0}Processing {1}", currentIndent, uri);
+            Console.Write("Processing {0}", uri);
             var fileName = GetFileName(path, uri);
             if (!update && System.IO.File.Exists(fileName))
             {
@@ -102,9 +123,13 @@
             IEnumerable<Uri> links;
             using (var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Head, uri))
             {
-                request.Version = new Version(1, 0);
-                request.Headers.ConnectionClose = true;
                 System.Net.Http.HttpResponseMessage response;
+                if (update)
+                {
+                    var fileInfo = new System.IO.FileInfo(fileName);
+                    var modifiedDate = fileInfo.LastWriteTimeUtc;
+                    request.Headers.IfModifiedSince = modifiedDate;
+                }
                 
                 try
                 {
@@ -118,7 +143,7 @@
 
                 using (response)
                 {
-                    Console.ForegroundColor = response.IsSuccessStatusCode ? ConsoleColor.DarkGreen : ConsoleColor.DarkRed;
+                    Console.ForegroundColor = response.IsSuccessStatusCode ? ConsoleColor.Green : ConsoleColor.DarkRed;
                     Console.Write(" - {0}", response.StatusCode);
                     Console.ForegroundColor = DefaultConsoleColor;
                     if (!response.IsSuccessStatusCode)
@@ -149,7 +174,7 @@
                     {
                         // create the file name
                         var contentLength = response.Content.Headers.ContentLength;
-                        //System.Diagnostics.Debug.Assert(contentLength.HasValue && contentLength.Value > 0);
+                        System.Diagnostics.Debug.Assert(contentLength.HasValue && contentLength.Value > 0);
 
                         // check to see if this exists
                         if (System.IO.File.Exists(fileName))
@@ -276,7 +301,8 @@
             {
                 var link = linksList[i];
                 Console.Write("{0}({1:P}) ", currentIndent, (double)(i + 1) / linksList.Count);
-            
+                currentLeft = Console.CursorLeft;
+
                 var count = 0;
                 while (!await Process(client, path, link, cancellationToken) && count < RetryCount)
                 {
@@ -299,7 +325,8 @@
                 throw new OperationCanceledException(cancellationToken);
             }
 
-            Console.Write("{0}Downloading {1}", currentIndent, System.IO.Path.GetFileName(fileName));
+            Console.CursorLeft = currentLeft;
+            Console.Write("Downloading {0}", System.IO.Path.GetFileName(fileName));
             var bytes = new byte[1024];
             var webRequest = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(uri);
             webRequest.Headers[System.Net.HttpRequestHeader.UserAgent] = "Mozilla/4.5 (compatible; HTTrack 3.0x; Windows 98)";
@@ -323,8 +350,8 @@
                     expected = webResponse.ContentLength;
                 }
 
-                Console.CursorLeft = 0;
-                Console.WriteLine("{0}Downloading {1} bytes from {2}", currentIndent, expected, System.IO.Path.GetFileName(fileName));
+                Console.CursorLeft = currentLeft;
+                Console.WriteLine("Downloading {0} bytes from {1}", expected, System.IO.Path.GetFileName(fileName));
                 var width = expected.ToString().Length;
                 var lastModified = DateTime.Parse(webResponse.Headers["Last-Modified"]);
 
@@ -370,12 +397,15 @@
                                 var duration = now - lastDateTime;
                                 lastDateTime = now;
                                 await fileStream.FlushAsync(cancellationToken);
-                                Console.CursorLeft = 0;
+                                
                                 var position = fileStream.Position;
                                 var positionChange = position - lastPosition;
                                 lastPosition = position;
-                                Console.Write("{0}Downloaded  {1} bytes ({2:P}) at {3:0.00} KB/sec, with delay of {4}", currentIndent, position.ToString().PadLeft(width), (double)position / expected, positionChange / duration.TotalSeconds / 1024, Delay);
-                                Console.Write("                    ");
+
+                                Console.CursorLeft = currentLeft;
+                                Console.Write("Downloaded  {0} bytes ({1:P}) at {2:0.00} KB/sec, with delay of {3}", position.ToString().PadLeft(width), (double)position / expected, positionChange / duration.TotalSeconds / 1024, Delay);
+                                var dataLeft = Console.BufferWidth - Console.CursorLeft - 1;
+                                Console.Write(new string(' ', dataLeft));
                                 Console.CursorLeft = 0;
                             }
                         }
