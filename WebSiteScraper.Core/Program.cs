@@ -350,9 +350,37 @@
                     expected = webResponse.ContentLength;
                 }
 
+                // divisor
+                var divisor = 1;
+                while ((expected / divisor) > 1024)
+                {
+                    divisor *= 1024;
+                }
+
+                var units = "B";
+                switch (divisor)
+                {
+                    case 1024:
+                        units = "KB";
+                        break;
+                    case 1048576:
+                        units = "MB";
+                        break;
+                    case 1073741824:
+                        units = "GB";
+                        break;
+                }
+
                 Console.CursorLeft = currentLeft;
-                Console.WriteLine("Downloading {0} bytes from {1}", expected, System.IO.Path.GetFileName(fileName));
-                var width = expected.ToString().Length;
+                var sizeFormat = "{0}";
+                if (divisor > 1)
+                {
+                    sizeFormat = "{0:0.0}";
+                }
+
+                var expectedText = string.Format(sizeFormat, (double)expected / divisor);
+                Console.WriteLine("Downloading {0} {1} from {2}", expectedText, units, System.IO.Path.GetFileName(fileName));
+                var width = expectedText.Length;
                 var lastModified = DateTime.Parse(webResponse.Headers["Last-Modified"]);
 
                 using (var stream = webResponse.GetResponseStream())
@@ -403,7 +431,8 @@
                                 lastPosition = position;
 
                                 Console.CursorLeft = currentLeft;
-                                Console.Write("Downloaded  {0} bytes ({1:P}) at {2:0.00} KB/sec, with delay of {3}", position.ToString().PadLeft(width), (double)position / expected, positionChange / duration.TotalSeconds / 1024, Delay);
+                                var positionValue = string.Format(sizeFormat, (double)position / divisor);
+                                Console.Write("Downloaded  {0} {1} ({2:P}) at {3:0.00} KB/sec, with delay of {4}", positionValue.PadLeft(width), units, (double)position / expected, positionChange / duration.TotalSeconds / 1024, Delay);
                                 var dataLeft = Console.BufferWidth - Console.CursorLeft - 1;
                                 Console.Write(new string(' ', dataLeft));
                                 Console.CursorLeft = 0;
