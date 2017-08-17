@@ -10,7 +10,7 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceRoot}/WebSiteScraper.Core/bin/Debug/netcoreapp1.1/WebSiteScraper.Core.dll",
+            "program": "${workspaceRoot}/WebSiteScraper.Core/bin/Debug/netcoreapp2.0/WebSiteScraper.Core.dll",
             "args": [ 
                 "http://www.shadowsgovernment.com/shadows-library/",
                  "F:\\Data\\sites\\Shadow's Library" 
